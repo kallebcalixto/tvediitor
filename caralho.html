@@ -1,0 +1,557 @@
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8" />
+<title>Player Programado — 100% Funcional</title>
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<style>
+  :root { color-scheme: dark; }
+  body {
+    background:#111;
+    color:#eee;
+    font-family: Arial, sans-serif;
+    margin:0;
+    overflow-y: scroll;
+    min-height: 101vh;
+  }
+  header { padding:16px 20px; background:#1b1b1b; border-top:1px solid #2a2a2a; }
+  header h1 { margin:0 0 6px 0; font-size:18px; }
+  #grade { white-space:pre-line; font-size:13px; color:#ddd; max-height:220px; overflow-y:auto; }
+  .wrap { max-width:1200px; margin:0 auto; padding:20px; }
+  .top {
+    display:flex;
+    gap:20px;
+    align-items:flex-start;
+    flex-wrap:wrap;
+    justify-content:center;
+  }
+  #player, #ytplayer {
+    width:500px; height:280px;
+    background:#000; border:1px solid #333; border-radius:8px;
+  }
+  #player { object-fit: contain; display:block; }
+  #ytplayer { display:none; }
+  .controls { display:flex; gap:8px; margin-top:10px; flex-wrap:wrap; }
+  button { padding:8px 12px; border:none; border-radius:8px; cursor:pointer; background:#2f2f2f; color:#fff; }
+  button:hover { background:#454545; }
+  .btn-pri { background:#2e7d32; } .btn-pri:hover{ background:#3e8d42; }
+  .btn-sec { background:#1976d2; } .btn-sec:hover{ background:#2a82d8; }
+  .grid { display:flex; flex-wrap:wrap; gap:12px; margin-top:18px; max-height:400px; overflow-y:auto; }
+  .bloco { position:relative; flex:0 0 320px; border:1px solid #2b2b2b; background:#171717; border-radius:10px; padding:12px; }
+  .bloco h3 { margin:0 0 10px 0; font-size:15px; }
+  .row { display:flex; gap:10px; align-items:center; flex-wrap:wrap; margin-bottom: 8px;}
+  .row input[type="time"] { width:100px; }
+  .hint { font-size:12px; color:#aaa; }
+  .badge { display:inline-block; padding:2px 8px; border-radius:999px; background:#2a2a2a; font-size:12px; margin-left:6px; }
+  .running::before {
+    content:"Em execução";
+    position:absolute; top:0; left:0; right:0;
+    background:#2e7d32; color:#fff; font-size:12px; text-align:center;
+    padding:2px 0; border-radius:10px 10px 0 0;
+  }
+  .mini-btn {
+    padding:4px 6px; margin:2px; border:none; border-radius:6px;
+    cursor:pointer; background:#444; color:#fff; font-size:11px;
+  }
+  .mini-btn.active { background: #1976d2; border: 1px solid #fff; }
+  .horarios-list { width: 100%; max-height: 80px; overflow-y: auto; background: #000; border-radius: 4px; padding: 4px; margin-top: 5px; border: 1px solid #333; }
+  .horario-item { font-size: 11px; display: flex; justify-content: space-between; margin-bottom: 2px; background: #222; padding: 2px 5px; border-radius: 3px;}
+  .removed { opacity:0.6; }
+</style>
+<script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
+
+<script type="module">
+  import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
+  import { getDatabase, ref, set, onValue } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-database.js";
+
+  const firebaseConfig = {
+    apiKey: "AIzaSyBzzQg4fMWQm82aOu2xM2huVPvHeyitFxQ",
+    authDomain: "controle-remoto-da345.firebaseapp.com",
+    databaseURL: "https://controle-remoto-da345-default-rtdb.firebaseio.com",
+    projectId: "controle-remoto-da345",
+    storageBucket: "controle-remoto-da345.firebasestorage.app",
+    messagingSenderId: "246457543992",
+    appId: "1:246457543992:web:41bf1bd64a4788fb2625cd",
+    measurementId: "G-CFHSFG82SX"
+  };
+
+  const app = initializeApp(firebaseConfig);
+  const db = getDatabase(app);
+  const blocosRef = ref(db, "player_m3u"); 
+
+  window._firebase_db = db;
+  window._firebase_ref = ref;
+  window._firebase_set = set;
+  window._firebase_onValue = onValue; 
+
+  window.iniciarLeituraFirebase = function() {
+      window._firebase_onValue(blocosRef, snap => {
+          const dadosFirebase = snap.val() || {};
+          let novosBlocos = [];
+          const blocosAtuaisLocais = blocos.filter(b => b.tipo !== 'youtube');
+          novosBlocos = [...blocosAtuaisLocais];
+
+          Object.keys(dadosFirebase).sort().forEach(i => {
+              const d = dadosFirebase[i];
+              const bloco = {
+                  tipo: 'youtube',
+                  arquivos: [],
+                  progresso: [],
+                  tempo: 0,
+                  sessaoRestante: 0,
+                  pauseRestante: 0,
+                  arquivoAtual: 0,
+                  limitePorCiclo: 0,
+                  ytlink: d.yt || '',
+                  m3ulink: d.m3u || '',
+                  diaSemana: d.dia || '',
+                  horaInicio: d.inicio || '',
+                  horaFim: d.fim || '',
+                  removido: false,
+                  _agendadoRodando: false,
+                  _firebaseIndex: parseInt(i)
+              };
+              novosBlocos.unshift(bloco);
+          });
+
+          blocos = novosBlocos;
+          carregarMemoria(); 
+          renderizarTodosOsBlocos();
+          atualizarGrade();
+          checarAgendamento(true);
+      });
+  };
+</script>
+</head>
+<body onload="iniciarLeituraFirebase()"> 
+  <div class="wrap">
+    <div class="top">
+      <div id="player-container" style="position:relative;">
+        <video id="player" controls playsinline></video>
+        <iframe id="ytplayer" allow="autoplay; encrypted-media" frameborder="0" style="position:absolute; top:0; left:0; display:none;"></iframe>
+        <div class="controls">
+          <button class="btn-pri" onclick="iniciar()">▶ Iniciar</button>
+          <button onclick="pausar()">⏸ Pausar</button>
+          <button onclick="retomar()">⏵ Retomar</button>
+          <button onclick="blocoAnterior()">⏮ Bloco anterior</button>
+          <button onclick="proximoBloco()">⏭ Próximo bloco</button>
+        </div>
+
+        <div class="player-resize-controls" style="margin-top:10px; display:flex; gap:8px; align-items:center;">
+          <label>Largura:</label>
+          <input type="number" id="playerWidth" value="500" style="width:70px;">
+          <label>Altura:</label>
+          <input type="number" id="playerHeight" value="280" style="width:70px;">
+          <button onclick="resizePlayer()">Redimensionar</button>
+        </div>
+      </div>
+
+      <div>
+        <button class="btn-sec" onclick="adicionarBloco('timer')">+ Bloco (Tempo Fixo)</button>
+        <button class="btn-sec" onclick="adicionarBloco('movie')">+ Bloco (Filmes)</button>
+        <button class="btn-sec" onclick="adicionarBloco('pause')">+ Bloco (Pausa)</button>
+        <button class="btn-sec" onclick="salvarProgramacao()">💾 Salvar</button>
+        <button class="btn-sec" onclick="document.getElementById('fileInput').click()">📂 Carregar</button>
+        <input type="file" id="fileInput" style="display:none" accept="application/json" onchange="carregarProgramacao(this)">
+      </div>
+    </div>
+    <div id="blocos" class="grid"></div>
+  </div>
+
+  <header>
+    <h1>📺 Grade de Programação</h1>
+    <div id="grade">Aguardando blocos...</div>
+  </header>
+
+<script>
+const video = document.getElementById('player');
+const ytplayer = document.getElementById('ytplayer');
+const gradeEl = document.getElementById('grade');
+const blocosEl = document.getElementById('blocos');
+
+let blocos = [];
+let idxBloco = -1; 
+let modoAutomatico = false; 
+let pauseTimer = null;
+let hlsInstance = null; 
+let ultimaHoraChecada = ""; 
+let puloManual = false; // TRAVA DE SEGURANÇA
+
+function fmt(s){ s=Math.max(0,Math.floor(s||0));
+  const h=String(Math.floor(s/3600)).padStart(2,'0');
+  const m=String(Math.floor((s%3600)/60)).padStart(2,'0');
+  const ss=String(s%60).padStart(2,'0');
+  return `${h}:${m}:${ss}`;
+}
+function timeToSec(str){ if(!str) return 0;
+  const p=str.split(':').map(Number); return (p[0]||0)*3600+(p[1]||0)*60+(p[2]||0);
+}
+function anyPlayableBlocks(){ return blocos.some(b=>b && !b.removido); }
+
+function persistirMemoria() {
+    if (blocos.length === 0) return;
+    const dadosParaSalvar = blocos.map(b => ({
+        tipo: b.tipo,
+        ytlink: b.ytlink,
+        m3ulink: b.m3ulink,
+        arquivoAtual: b.arquivoAtual,
+        progresso: b.progresso
+    }));
+    localStorage.setItem('memoria_player_v2', JSON.stringify(dadosParaSalvar));
+}
+
+function carregarMemoria() {
+    const salvo = localStorage.getItem('memoria_player_v2');
+    if (salvo) {
+        const dados = JSON.parse(salvo);
+        dados.forEach((d, i) => {
+            let blocoAlvo = blocos.find(b => (b.tipo === d.tipo && (b.ytlink === d.ytlink || b.m3ulink === d.m3ulink)));
+            if (blocoAlvo) {
+                blocoAlvo.arquivoAtual = d.arquivoAtual || 0;
+                blocoAlvo.progresso = d.progresso || [];
+            }
+        });
+    }
+}
+
+function renderizarTodosOsBlocos() {
+  blocosEl.innerHTML = '';
+  blocos.forEach((b, i) => renderizarBloco(i, b));
+}
+
+function adicionarBloco(tipo){
+  const b = {
+    tipo, arquivos: [], progresso: [],
+    tempo: (tipo==='timer'||tipo==='pause'?300:0),
+    sessaoRestante: 0, pauseRestante: 0, arquivoAtual: 0, limitePorCiclo: (tipo==='movie'?3:0),
+    ytlink:'', m3ulink:'', diasSelecionados: ["Domingo","Segunda","Terça","Quarta","Quinta","Sexta","Sábado"], listaHorarios: [],
+    removido:false, _agendadoRodando:false, modoLivre: (tipo === 'movie')
+  };
+  blocos.push(b);
+  renderizarTodosOsBlocos();
+  atualizarGrade();
+}
+
+function renderizarBloco(i, b){
+  const card = document.createElement('div');
+  card.className='bloco' + (b.removido ? ' removed' : '');
+  card.id=`bloco-${i}`;
+  if (idxBloco === i && anyPlayableBlocks() && !b.removido) card.classList.add('running');
+  const isYoutube = b.tipo === 'youtube';
+
+  card.innerHTML = `
+    <h3>Bloco ${i+1} <span class="badge">${b.tipo} ${b.modoLivre ? '(Modo Livre)' : ''}</span></h3>
+    <div class="row">
+      ${(b.tipo==='timer'||b.tipo==='movie') ? `
+        <label>Vídeos:</label>
+        <input type="file" multiple onchange="carregarArquivos(${i}, this.files)">
+      `:''}
+      ${b.tipo==='timer'||b.tipo==='pause' ? `<label>Duração:</label><input type="time" step="1" value="${fmt(b.tempo)}" oninput="blocos[${i}].tempo=timeToSec(this.value); atualizarGrade()">`:''}
+      ${b.tipo==='movie' ? `
+        <label>Limite:</label><input type="number" min="1" value="${b.limitePorCiclo}" onchange="blocos[${i}].limitePorCiclo=parseInt(this.value); atualizarGrade()">
+        <button class="mini-btn ${b.modoLivre ? 'active' : ''}" style="background:${b.modoLivre?'#1976d2':'#444'};" onclick="toggleModoLivre(${i})">Modo Livre</button>
+      `:''}
+      ${isYoutube ? `
+        <label>YT/M3U:</label><input type="text" value="${b.ytlink || b.m3ulink}" disabled style="width:100%">
+        <label>Agendado:</label> <small style="color:#ff9800; font-weight:bold;">${b.diaSemana} - ${b.horaInicio} às ${b.horaFim}</small>
+      ` : `
+        <div style="width:100%; border-top:1px solid #333; padding-top:10px;">
+           <label style="font-size:12px;">Dias da Semana:</label>
+           <div class="dias-wrap">
+              ${['Domingo','Segunda','Terça','Quarta','Quinta','Sexta','Sábado'].map(d => `
+                <button class="mini-btn ${b.diasSelecionados && b.diasSelecionados.includes(d) ? 'active' : ''}" 
+                  onclick="toggleDia(${i}, '${d}')">${d.substring(0,3)}</button>
+              `).join('')}
+           </div>
+        </div>
+        ${!b.modoLivre ? `
+        <div style="width:100%; margin-top:10px;">
+           <label style="font-size:12px;">Agendar Horários:</label>
+           <div class="row">
+              <input type="time" id="hi-${i}"> <input type="time" id="hf-${i}">
+              <button class="mini-btn" style="background:#2e7d32;" onclick="addHorario(${i})">+</button>
+           </div>
+           <div class="horarios-list">
+              ${(b.listaHorarios || []).map((h, hidx) => `
+                <div class="horario-item">
+                  <span>${h.inicio} às ${h.fim}</span>
+                  <button class="mini-btn" style="background:#b71c1c;" onclick="delHorario(${i}, ${hidx})">x</button>
+                </div>
+              `).join('')}
+           </div>
+        </div>` : '<div style="font-size:11px; color:#4caf50; margin-top:10px;">✔ Rodando o dia inteiro (Modo Livre)</div>'}
+      `}
+    </div>
+    <div class="hint" id="info-${i}">${b.arquivos.length} vídeos carregados.</div>
+    ${b.tipo==='movie' && !b.removido ? `
+      <div style="margin-top:8px;">
+        <button class="mini-btn" onclick="voltarArquivo(${i})">⏮ Voltar</button>
+        <button class="mini-btn" onclick="pularArquivo(${i})">⏭ Pular</button>
+      </div>`:''}
+    <button onclick="removerBloco(${i})" style="margin-top:8px;background:#b71c1c;">🗑 Remover</button>
+  `;
+  blocosEl.appendChild(card);
+}
+
+window.toggleModoLivre = function(i) { 
+    blocos[i].modoLivre = !blocos[i].modoLivre; 
+    renderizarTodosOsBlocos(); 
+    atualizarGrade();
+    if(modoAutomatico) checarAgendamento(true);
+}
+window.toggleDia = function(i, dia) {
+  if(!blocos[i].diasSelecionados) blocos[i].diasSelecionados = [];
+  const idx = blocos[i].diasSelecionados.indexOf(dia);
+  if(idx > -1) blocos[i].diasSelecionados.splice(idx, 1);
+  else blocos[i].diasSelecionados.push(dia);
+  renderizarTodosOsBlocos(); atualizarGrade();
+  if(modoAutomatico) checarAgendamento(true);
+}
+window.addHorario = function(i) {
+  const hi = document.getElementById(`hi-${i}`).value, hf = document.getElementById(`hf-${i}`).value;
+  if(!hi || !hf) return;
+  if(!blocos[i].listaHorarios) blocos[i].listaHorarios = [];
+  blocos[i].listaHorarios.push({inicio: hi, fim: hf}); 
+  renderizarTodosOsBlocos(); 
+  atualizarGrade();
+  if(modoAutomatico) checarAgendamento(true);
+}
+window.delHorario = function(i, hidx) { 
+    blocos[i].listaHorarios.splice(hidx, 1); 
+    renderizarTodosOsBlocos(); 
+    atualizarGrade();
+    if(modoAutomatico) checarAgendamento(true);
+}
+
+window.carregarArquivos = function(i, fileList){
+  const b = blocos[i]; b.arquivos = []; 
+  const progressoAntigo = [...(b.progresso || [])];
+  b.progresso = [];
+  Array.from(fileList).forEach((file, fidx)=>{
+    b.arquivos.push({ url: URL.createObjectURL(file), nome: file.name });
+    b.progresso.push(progressoAntigo[fidx] || 0);
+  });
+  renderizarTodosOsBlocos(); atualizarGrade();
+}
+
+video.ontimeupdate = () => {
+    if (idxBloco !== -1 && blocos[idxBloco] && blocos[idxBloco].tipo !== 'youtube' && video.readyState >= 2) {
+        blocos[idxBloco].progresso[blocos[idxBloco].arquivoAtual] = video.currentTime;
+        persistirMemoria();
+    }
+};
+
+function tocarAtual(){
+  if (!modoAutomatico) return;
+  clearTimeout(pauseTimer); 
+  
+  if (idxBloco === -1) { 
+    gradeEl.textContent = "Silêncio: Aguardando horário."; 
+    stopYouTube(); stopM3U(); video.pause(); video.style.display='none';
+    return; 
+  }
+  const b = blocos[idxBloco];
+  if (!b || b.removido) { proximoBloco(); return; }
+
+  renderizarTodosOsBlocos();
+
+  if (b.tipo === 'pause') { 
+    stopYouTube(); stopM3U(); video.pause(); 
+    pauseTimer = setTimeout(()=> proximoBloco(), (b.pauseRestante||b.tempo)*1000); 
+    return; 
+  }
+  
+  if (b.tipo === 'youtube') {
+    const id = extrairYTId(b.ytlink);
+    if (id) {
+        stopM3U(); video.style.display='none'; ytplayer.style.display='block';
+        ytplayer.src = `https://www.youtube.com/embed/${id}?autoplay=1`;
+    } else if (b.m3ulink) {
+        stopYouTube(); startM3UNow(b.m3ulink);
+    }
+    return;
+  }
+
+  stopYouTube(); stopM3U();
+  if (!b.arquivos.length) { proximoBloco(); return; }
+  
+  ytplayer.style.display='none'; video.style.display='block';
+  video.src = b.arquivos[b.arquivoAtual].url;
+  
+  video.onloadedmetadata = () => {
+    const t = b.progresso[b.arquivoAtual] || 0;
+    if(t > 0) video.currentTime = t;
+    video.play().catch(()=>{});
+  };
+  
+  video.onended = () => {
+    b.progresso[b.arquivoAtual] = 0;
+    b.arquivoAtual++;
+    persistirMemoria();
+    if (b.tipo === 'movie') {
+        b.executadosNesteCiclo = (b.executadosNesteCiclo||0) + 1;
+        if (b.executadosNesteCiclo >= b.limitePorCiclo || b.arquivoAtual >= b.arquivos.length) {
+            if(b.arquivoAtual >= b.arquivos.length) b.arquivoAtual = 0;
+            b.executadosNesteCiclo = 0; proximoBloco(); 
+        } else { tocarAtual(); }
+    } else {
+        if(b.arquivoAtual >= b.arquivos.length) { b.arquivoAtual=0; proximoBloco(); } else { tocarAtual(); }
+    }
+  };
+}
+
+function startM3UNow(url){
+  if (video.dataset.currentM3u === url && !video.paused) return;
+  stopM3U();
+  video.style.display = 'block'; ytplayer.style.display = 'none';
+  video.dataset.currentM3u = url;
+  if(Hls.isSupported()){
+    hlsInstance = new Hls(); hlsInstance.loadSource(url); hlsInstance.attachMedia(video);
+    hlsInstance.on(Hls.Events.MANIFEST_PARSED, ()=> video.play());
+  } else { video.src = url; video.play(); }
+}
+
+function iniciar(){ modoAutomatico = true; checarAgendamento(true); }
+function pausar(){ modoAutomatico = false; video.pause(); stopYouTube(); stopM3U(); }
+function retomar(){ modoAutomatico = true; tocarAtual(); }
+
+function isBlocoAgendadoAgora(i) {
+    const b = blocos[i]; if (!b || b.removido) return false;
+    const agora = new Date(), hoje = ["Domingo","Segunda","Terça","Quarta","Quinta","Sexta","Sábado"][agora.getDay()];
+    const horaAtual = `${String(agora.getHours()).padStart(2,'0')}:${String(agora.getMinutes()).padStart(2,'0')}`;
+
+    if (b.tipo === 'youtube') {
+        const diaS = b.diaSemana.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+        const hojeS = hoje.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+        return (diaS === hojeS && horaAtual >= b.horaInicio && horaAtual < b.horaFim);
+    } else {
+        if (!b.diasSelecionados?.includes(hoje)) return false;
+        if (b.modoLivre) return false; 
+        return b.listaHorarios?.some(h => horaAtual >= h.inicio && horaAtual < h.fim);
+    }
+}
+
+function checarAgendamento(force = false){
+  if (!modoAutomatico) return;
+  const agora = new Date(), hoje = ["Domingo","Segunda","Terça","Quarta","Quinta","Sexta","Sábado"][agora.getDay()];
+  const horaAtual = `${String(agora.getHours()).padStart(2,'0')}:${String(agora.getMinutes()).padStart(2,'0')}`;
+  
+  if (!force && horaAtual === ultimaHoraChecada) return;
+  
+  // Se o minuto virou, liberamos o automático de novo
+  ultimaHoraChecada = horaAtual;
+  puloManual = false; 
+
+  let alvo = -1;
+  for (let i = 0; i < blocos.length; i++) {
+      if (isBlocoAgendadoAgora(i)) { alvo = i; break; }
+  }
+
+  if (alvo === -1) {
+      alvo = blocos.findIndex((b, i) => b.modoLivre && b.diasSelecionados?.includes(hoje) && !b.removido);
+  }
+
+  // SÓ MUDA SE NÃO ESTIVER EM TRAVA MANUAL
+  if (alvo !== idxBloco && !puloManual) {
+      if (idxBloco !== -1 && blocos[idxBloco] && blocos[idxBloco].tipo !== 'youtube' && video.readyState >= 2) {
+          blocos[idxBloco].progresso[blocos[idxBloco].arquivoAtual] = video.currentTime;
+          persistirMemoria();
+      }
+      idxBloco = alvo;
+      tocarAtual();
+      renderizarTodosOsBlocos();
+  }
+}
+
+setInterval(() => checarAgendamento(false), 1000);
+
+function proximoBloco(){ 
+    puloManual = true; // TRAVA O AGENDADOR AUTOMÁTICO PARA NÃO VOLTAR
+    if (idxBloco !== -1 && blocos[idxBloco] && blocos[idxBloco].tipo !== 'youtube') {
+        blocos[idxBloco].progresso[blocos[idxBloco].arquivoAtual] = video.currentTime;
+        persistirMemoria();
+    }
+    let startIdx = (idxBloco + 1) % blocos.length;
+    for(let t=0; t<blocos.length; t++){
+        let current = (startIdx + t) % blocos.length;
+        const b = blocos[current];
+        const agora = new Date(), hoje = ["Domingo","Segunda","Terça","Quarta","Quinta","Sexta","Sábado"][agora.getDay()];
+        if(!b.removido && (isBlocoAgendadoAgora(current) || (b.modoLivre && b.diasSelecionados?.includes(hoje)))){ 
+            idxBloco=current; tocarAtual(); return; 
+        }
+    }
+    idxBloco = -1; tocarAtual();
+}
+
+function blocoAnterior(){ 
+    puloManual = true; // TRAVA O AGENDADOR
+    idxBloco = (idxBloco - 1 + blocos.length) % blocos.length; 
+    tocarAtual(); 
+}
+
+function stopYouTube(){ ytplayer.src = ''; ytplayer.style.display='none'; }
+function stopM3U(){ 
+    if(hlsInstance) { hlsInstance.destroy(); hlsInstance = null; } 
+    video.pause(); video.src = ""; delete video.dataset.currentM3u; video.load();
+}
+function extrairYTId(url){ const m = (url||"").match(/(?:youtu\.be\/|youtube\.com\/(?:watch\?v=|embed\/|v\/|shorts\/))([A-Za-z0-9_-]{11})/); return m ? m[1] : null; }
+
+function atualizarGrade(){
+  let out = '';
+  blocos.forEach((b, i) => {
+    if(b.removido) return;
+    out += `Bloco ${i+1} [${b.tipo.toUpperCase()}] ${b.modoLivre ? '(Livre)' : ''}\n`;
+    if(b.tipo === 'youtube') out += `    ⏰ EXCLUSIVO: ${b.diaSemana} das ${b.horaInicio} às ${b.horaFim}\n`;
+    else {
+        if(!b.modoLivre && b.listaHorarios?.length) out += `    ⏰ Agendados: ${b.listaHorarios.map(h=>h.inicio + '-' + h.fim).join(' | ')}\n`;
+        if(b.modoLivre) out += `    ⏰ Modo Livre: Ativo o dia todo (${b.diasSelecionados.join(', ')})\n`;
+    }
+  });
+  gradeEl.textContent = out || 'Nenhum bloco ativo.';
+}
+
+function salvarProgramacao(){
+  const data = blocos.filter(b=>b.tipo!=='youtube').map(b => ({
+      ...b, arquivos: [], progresso: b.progresso 
+  }));
+  const blob = new Blob([JSON.stringify(data)], {type:'application/json'});
+  const a = document.createElement('a'); a.href=URL.createObjectURL(blob); a.download="programacao.json"; a.click();
+}
+
+function carregarProgramacao(input){
+  const reader = new FileReader();
+  reader.onload = e => {
+    blocos = JSON.parse(e.target.result).map(b => ({...b, arquivos:[]}));
+    carregarMemoria();
+    renderizarTodosOsBlocos(); atualizarGrade(); iniciarLeituraFirebase();
+  };
+  reader.readAsText(input.files[0]);
+}
+
+function resizePlayer() {
+  const w = document.getElementById('playerWidth').value, h = document.getElementById('playerHeight').value;
+  video.style.width = w+'px'; video.style.height = h+'px';
+  ytplayer.style.width = w+'px'; ytplayer.style.height = h+'px';
+}
+
+function removerBloco(i) { blocos[i].removido = true; renderizarTodosOsBlocos(); atualizarGrade(); }
+
+function pularArquivo(i) {
+    if(blocos[i].arquivos.length > 0) {
+        blocos[i].progresso[blocos[i].arquivoAtual] = 0;
+        blocos[i].arquivoAtual = (blocos[i].arquivoAtual + 1) % blocos[i].arquivos.length;
+        persistirMemoria();
+        if(idxBloco === i) tocarAtual();
+    }
+}
+
+function voltarArquivo(i) {
+    if(blocos[i].arquivos.length > 0) {
+        blocos[i].progresso[blocos[i].arquivoAtual] = 0;
+        blocos[i].arquivoAtual = (blocos[i].arquivoAtual - 1 + blocos[i].arquivos.length) % blocos[i].arquivos.length;
+        persistirMemoria();
+        if(idxBloco === i) tocarAtual();
+    }
+}
+</script>
+</body>
+</html>
